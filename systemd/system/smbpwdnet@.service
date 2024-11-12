@@ -1,0 +1,16 @@
+[Unit]
+Description=SMB Password check and change Service
+After=network.target smbpwdnet.socket
+Requires=smbpwdnet.socket
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /srv/smbpwdnet.sh
+StandardError=journal
+StandardInput=socket
+StandardOutput=socket
+TimeoutStopSec=5
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target

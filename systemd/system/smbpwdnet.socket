@@ -1,0 +1,11 @@
+[Unit]
+Description=SMB Password check and change Socket
+PartOf=smbpwdnet@.service
+
+[Socket]
+ListenStream=0.0.0.0:9445
+Writable=Yes
+Accept=Yes
+
+[Install]
+WantedBy=sockets.target
