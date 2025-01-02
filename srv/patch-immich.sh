@@ -67,3 +67,9 @@ if [ `podman exec -it Immich-Server sh -c "cat dist/services/auth.service.js | t
   podman exec -it $IMMICH_SERVER perl -i -0777 -pe 's/^    async changePassword\(auth\, dto\) \{.*?^    \}/'"$JS_PASSWORD_PATCH"'/sm' dist/services/auth.service.js
   echo "Found unpatched Immich ChangePassword-Function, patched."
 fi
+
+# If supplementary file is found in current directory it is copied to Immich server
+if [ -f getsmbpwdnet.js ]; then
+  podman cp getsmbpwdnet.js $IMMICH_SERVER:/usr/src/app/
+  echo Copied getsmbpwdnet.js into $IMMICH_SERVER.
+fi
