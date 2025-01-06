@@ -1,11 +1,11 @@
 [Unit]
 Description=SMB Password check and change Service
-After=network.target smbpwdnet.socket
-Requires=smbpwdnet.socket
+After=network.target smbpwd-daemon.socket
+Requires=smbpwd-daemon.socket
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash /srv/smbpwdnet.sh
+ExecStart=/bin/bash /srv/sbin/smbpwd-daemon.sh
 StandardError=journal
 StandardInput=socket
 StandardOutput=socket
