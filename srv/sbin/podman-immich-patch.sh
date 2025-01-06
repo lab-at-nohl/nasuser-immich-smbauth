@@ -69,7 +69,11 @@ if [ `podman exec -it Immich-Server sh -c "cat dist/services/auth.service.js | t
 fi
 
 # If supplementary file is found in current directory it is copied to Immich server
-if [ -f getsmbpwdnet.js ]; then
-  podman cp getsmbpwdnet.js $IMMICH_SERVER:/usr/src/app/
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+if [ -f $SCRIPT_DIR/../share/immich-getsmbpwdnet.js ]; then
+        podman cp $SCRIPT_DIR/../share/immich-getsmbpwdnet.js $IMMICH_SERVER:/usr/src/app/getsmbpwdnet.js
   echo Copied getsmbpwdnet.js into $IMMICH_SERVER.
 fi
+
+echo "Restart patched Immich-Server"
+podman start Immich-Server
