@@ -1,6 +1,6 @@
 [Unit]
 Description=SMB Password check and change Socket
-PartOf=smbpwdnet@.service
+PartOf=smbpwd-daemon@.service
 
 [Socket]
 ListenStream=0.0.0.0:9445
