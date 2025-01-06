@@ -1,0 +1,177 @@
+#!/bin/bash
+
+### Default file/folder structure for NAS users 
+#
+# /home/<username>              drwxrwx--- <username>:<usergroup>
+# /home/<username>/example      drwxrwx--- <username>:<usergroup>
+# /home/<username>/xyz          drwxrwx--- <username>:<usergroup>
+# /home/<username>/Immich       drwxr-x--- immich:immich
+# /home/<username>/Immich/2024  drwxr-x--- immich:immich
+#
+# <usergroup> =+ <username>, user immich, <guest username>
+# <username> also belongs to group "immich", for read access to its pictures
+
+IMMICH_USER=immich
+IMMICH_GROUP=immich
+
+IMMICH_URL="http://leapinst.fritz.box:5000"
+IMMICH_DOMAIN=leapinst
+IMMICH_API_KEY=NN9p5HbWUJkeX8GFfJH5o120ADnhlk8i0CYV9ex9E
+
+DOCS=Dokumente
+
+# Show basic usage
+function _usage {
+    echo "Usage: $0 [ add | enable | disable | remove | share | unshare ] <username> "
+    echo
+    echo "Subcommands: "
+    echo
+    echo "  add <username> "
+    echo "  enable <username>"
+    echo "  disable <username>"
+    echo "  remove <original_username> will rename to placeholder but not purge the data"
+    echo "  purge <renamed_username> will remove data data permanently"
+    echo "  share <username:guest>"
+    echo "  unshare <username:guest>"
+    echo
+    echo "For sanity, $0 will always ensure that UID won't be reused. Removed <usernames> can be reused. "
+    exit 1
+}
+
+
+# Check for root
+if [[ $(id -u) -ne 0 ]]; then
+    echo "This script must be run as root."
+    exit 1
+fi
+
+# Do not create mailspool files
+. /etc/default/useradd
+if [[ "$CREATE_MAIL_SPOOL" == "yes" ]]; then
+    echo "FATAL: Set CREATE_MAIL_SPOOL=no in /etc/default/useradd before creating nasusers!"
+    exit 1
+fi
+
+# Ask for username
+if [[ "$1" == "--help" ]]; then
+ _usage
+elif [[ "$1" != "list" && -z $2 ]]; then
+ echo -n "Username: ";read U
+else
+ U=$2
+fi
+
+if [[ "$1" == "add" ]]; then
+    # Random password
+    P=$(tr -dc 'A-Za-z0-9!?%=$&' < /dev/urandom | head -c 10)
+    # Create subvolume, add user + snapshots
+    btrfs subvolume create /home/$U
+    useradd $U -d /home/$U -U -M -s /bin/sh
+    chown $U:$U /home/$U
+    chmod u=rwx,g=rwx,o= /home/$U
+    snapper -c home-$U create-config /home/$U/
+    snapper -c home-$U set-config ALLOW_USERS="$U" SYNC_ACL="yes"
+    # Create Immich folder, add user to group
+    mkdir /home/$U/Immich
+    chown $IMMICH_USER:$IMMICH_GROUP /home/$U/Immich
+    chmod u=rwx,g=rx,o= /home/$U/Immich
+    gpasswd -a $U immich
+    gpasswd -a immich $U
+    # Documents
+    mkdir /home/$U/$DOCS
+    chown $U:$U /home/$U/$DOCS
+    chmod u=rwx,g=rx,o= /home/$U/$DOCS
+    # SMB password
+    (echo "$P"; echo "$P") | smbpasswd -a $U
+    . podman-immich reset-users
+    curl -s -o /dev/null -L $IMMICH_URL'/api/admin/users' -H 'Content-Type: application/json' -H 'Accept: application/json' \
+        -H 'x-api-key: '$IMMICH_API_KEY \
+        -d '{ "email": "'$U'@'$IMMICH_DOMAIN'", "name": "'$U'", "password": "$P$P", "shouldChangePassword": false, "storageLabel": "'$U'" }'
+    echo "User created, password is: $P"
+elif [[ "$1" == "enable" ]]; then
+    smbpasswd -e $U
+elif [[ "$1" == "disable" ]]; then
+    smbpasswd -d $U
+elif [[ "$1" == "remove" ]]; then
+    smbpasswd -x $U
+    ID=`id -u $U`
+    mv /home/$U /home/removed-$ID
+    # Remove from Immich users
+    gpasswd -d $U immich
+    gpasswd -d immich $U
+    # Cannot use snapper set-config, change name/path not allowed
+    mv /etc/snapper/configs/home-$U /etc/snapper/configs/home-removed-$ID
+    . /etc/sysconfig/snapper
+    SNAP_CONFIGS=`for I in $SNAPPER_CONFIGS; do if [[ $I != "home-$U" ]]; then echo $I; else echo "home-removed-$ID"; fi done | xargs`
+    sed -i "/^SNAPPER_CONFIGS=\"/c\SNAPPER_CONFIGS=\"$SNAP_CONFIGS\"" /etc/sysconfig/snapper
+    sed -i "/^SUBVOLUME=\"/c\SUBVOLUME=\"/home/removed-$ID\"" /etc/snapper/configs/home-removed-$ID
+    sed -i "/^ALLOW_USERS=\"/c\ALLOW_USERS=\"removed-$ID\"" /etc/snapper/configs/home-removed-$ID
+    # change home, username, groupname and remove all group memberships (guest acces + immich)
+    usermod -d /home/removed-$ID $U
+    usermod --login removed-$ID $U
+    groupmod --new-name removed-$ID $U
+    systemctl restart snapperd
+    for I in `fgrep -e "removed-$ID" /etc/group`; do if [[ ${I%%:*} != removed-$ID ]]; then gpasswd -d removed-$ID ${I%%:*}; fi; done
+    . podman-immich reset-users
+    if [[ "" == $(podman inspect Immich-Server --format '{{.Mounts}}' | grep $U) ]]; then
+      # Make sure, user home is not mounted anymore
+      IMMICH_INTERNALID=$(
+          curl -s -L $IMMICH_URL'/api/admin/users' -H 'Content-Type: application/json' -H 'Accept: application/json' \
+          -H 'x-api-key: '$IMMICH_API_KEY \
+          | tr "{" "\n{" | cut -d ',' -f 1,2 | grep '"'$U'@' | cut -d '"' -f 4
+      )
+      echo $IMMICH_INTERNALID
+      curl -s -L -o /dev/null -X DELETE $IMMICH_URL'/api/admin/users/'$IMMICH_INTERNALID -H 'Content-Type: application/json' -H 'Accept: application/json' \
+          -H 'x-api-key: '$IMMICH_API_KEY \
+          -d '{"force": true}'
+    else
+      echo "IMPORTANT NOTE: Immich user $U still exists. Delete it manually AFTER Immich restart (to unmount home directory, to avoid file losses). "
+    fi
+    echo "New username: removed-$ID"
+elif [[ "$1" == "purge" ]]; then
+    if [[ "$2" != removed-* ]]; then
+        echo
+        echo "ERROR: Cannot purge active user, please run '$0 remove $1' before!"
+        echo
+        _usage
+    fi
+    SNAPS=`snapper -c home-$U list --columns number | tail -n +4 | xargs`
+    if [[ "" != "$SNAPS" ]]; then
+      echo "Remove snapshots: $SNAPS." 
+      snapper -c home-$U delete $SNAPS
+    fi
+    rm /etc/snapper/configs/home-$U
+    rmdir /home/$U/.snapshots
+    rm -rf /home/$U
+    mkdir /home/$U
+    chown root:root /home/$U
+    chmod 0000 /home/$U
+elif [[ "$1" == "share" ]]; then
+    G=${U#*:}
+    U=${U%:*}
+    usermod -a -G $U $G
+    echo "Added access for $G to $U."
+elif [[ "$1" == "unshare" ]]; then
+    G=${U#*:}
+    U=${U%:*}
+    gpasswd -d $G $U
+    echo "Removed access for $G from $U."
+elif [[ "$1" == "list" ]]; then
+    for I in `awk -F ':' '$3 < 2000 && $3 > 999' /etc/passwd`; do
+        U=${I%%:*}
+        if pdbedit -v "$U" 2>/dev/null | grep '\[U' &>/dev/null; then
+            echo -n "*_"
+        else
+            echo -n "_"
+        fi
+        echo $I | cut -d ':' -f3 | tr -d $'\n'
+        if [[ $U == removed* ]]; then
+            echo " $U"
+        else
+            G=`groups $U | cut -d ' ' -f4- | tr ' ' ','`
+            echo " $U $G"
+        fi
+    done | sort -r -t ' ' -k 2.4 | column -t -N Active,ID,Username,"Guest access" -s " _" -R Active
+else
+    _usage
+fi
