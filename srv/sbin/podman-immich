@@ -1,0 +1,122 @@
+#!/bin/bash
+
+### Immich podman containers to SERVE USERS IN /home/<username>/Immich/ 
+#
+# - Immich files are stored below /srv/immich using UID/GID (user/group name "immich" is fixed!)
+# - User <username> needs to be derived from an email, using e.g. immich-smb-auth
+# - <username> must be equal to Immich's storageLabel
+# - User's Immich-folder permissions drwxr-x--- immich:immich are subject to UMASK below
+# - Create Group/User like groupadd -g 299 -r immich / useradd -M -g 299 -u 299 -N -d /home immich
+#
+
+IMMICH_UID=299
+IMMICH_GID=299
+IMMICH_UMASK=0027
+IMMICH_PUBLIC_PORT=5000
+IMMICH_DIR=/srv/immich
+
+# Choose SELINUX or APPARMOR. If changed, pod needs to be recreated (podman pod rm Immich)!
+SELINUX=--security-opt=apparmor=unconfined #label=disable
+
+# For hardware acceleration, add one of -[armnn, cuda, openvino] to the image tag.
+IMMICH_ML_HW=
+
+### ------------------------ do not change below ----------------------- ###
+
+# Random password but exclusive use between containers
+DB_PWD=s5kfjXeoxmDsl
+
+
+# Common POD
+POD=`podman pod ps -f name=Immich -q`
+
+# Collect user folders for Immich and group ids
+NASUSERGIDS=
+NASUSERDIRS=
+while read -r NASUSER; do
+    NASUSERDIRS="$NASUSERDIRS -v /home/${NASUSER#* }/Immich:/usr/src/app/upload/library/${NASUSER#* }"
+    NASUSERGIDS="$NASUSERGIDS,`id -g $NASUSER`"
+done <<< $(fgrep ":299:" /etc/group | cut -d ':' -f 4 | tr "," "\n")
+NASUSERGIDS=$IMMICH_GID$NASUSERGIDS
+
+# Make sure all containers are available if only Immich-Server is changed
+if [[ $1 == "reset-users" ]]; then
+  RUNNING=$(podman ps --format "{{.Names}}" --sort names | grep Immich- | xargs)
+  if [[ $RUNNING != "Immich-ML Immich-Postgres Immich-Redis Immich-Server" ]]; then
+    echo "Could not find all of $RUNNING, set up all containers again."
+    shift
+  fi
+fi
+
+
+# Setup Pod and data dirs for Immich
+if [[ $POD != "" ]]; then
+  [[ $1 != "reset-users" ]] && echo "Pod: Reuse existing pod."
+else
+  echo -n "Pod: Create new "
+  podman pod create --replace --userns=keep-id:uid=$IMMICH_UID,gid=$IMMICH_GID \
+      -h immich -v /etc/localtime:/etc/localtime:ro -p $IMMICH_PUBLIC_PORT:2283 $SELINUX Immich
+  if [ $? -ne 0 ]; then
+    echo POD creation FAILED!
+    exit 255
+  fi
+  mkdir -p $IMMICH_DIR/db
+  mkdir -p $IMMICH_DIR/model-cache
+  mkdir -p $IMMICH_DIR/data
+  mkdir -p $IMMICH_DIR/data/upload/library
+  touch $IMMICH_DIR/data/upload/library/.immich
+  mkdir -p $IMMICH_DIR/redis
+  chown $IMMICH_UID:$IMMICH_GID -R $IMMICH_DIR
+  chmod u=rwx,g=rx,o= $IMMICH_DIR/*
+fi
+
+# Postgresql is fixed to rvector 0.3 || DB needs manual setting of process uid if pod in userns=keep-id
+if [[ $1 != "reset-users" ]]; then
+  echo -n "Immich-Postgres: "
+  podman create --pod Immich --replace --name Immich-Postgres -v $IMMICH_DIR/db:/var/lib/postgresql/data:Z -e POSTGRES_DB=immich -e POSTGRES_PASSWORD=im1db \
+      docker.io/tensorchord/pgvecto-rs:pg16-v0.3.0 > /dev/null
+  MNT=$(podman mount Immich-Postgres)
+  sed -i 's/999/299/g' $MNT/etc/passwd
+  sed -i '/^immich/d' $MNT/etc/passwd
+  sed -i 's/999/299/g' $MNT/etc/group
+  sed -i '/^immich/d' $MNT/etc/group
+  chown $IMMICH_UID:$IMMICH_GID $MNT/run/postgresql
+  podman umount Immich-Postgres
+  podman start Immich-Postgres > /dev/null
+  until podman exec -it Immich-Postgres psql -c '\l' > /dev/null; do sleep 0.2; done
+  podman exec -it Immich-Postgres psql -c "CREATE USER immich WITH SUPERUSER PASSWORD '$DB_PWD'" > /dev/null
+fi
+
+# Redis latest
+if [[ $1 != "reset-users" ]]; then
+  echo -n "Immich-Redis: "
+  podman run --pod Immich --replace --name Immich-Redis --detach -v $IMMICH_DIR/redis:/data:Z \
+      docker.io/library/redis:latest
+fi
+
+# Immich-ML
+if [[ $1 != "reset-users" ]]; then
+  echo -n Immich-ML:
+  podman run --pod Immich --replace --name Immich-ML --detach --umask=0077 -v $IMMICH_DIR/model-cache:/cache:z \
+      ghcr.io/immich-app/immich-machine-learning:release$IMMICH_ML_HW
+fi
+
+# Immich-Server
+echo -n "Immich-Server: "
+## Need further testing, $NASUSERGIDS necessary because this does not work: --runtime=crun --annotation run.oci.keep_original_groups=1 or --group-add keep-groups
+podman run --pod Immich --replace --name Immich-Server --detach --umask=$IMMICH_UMASK \
+    --runtime=crun --group-add $NASUSERGIDS \
+    -v $IMMICH_DIR/data:/usr/src/app/upload \
+    $NASUSERDIRS \
+    -e IMMICH_MACHINE_LEARNING_URL=http://immich-ml:3003 -e REDIS_HOSTNAME=immich \
+    -e DB_PASSWORD=$DB_PWD -e DB_USERNAME=immich -e DB_HOSTNAME=immich -e DB_DATABASE_NAME=immich \
+    ghcr.io/immich-app/immich-server:release
+
+
+# Install SMB Auth
+. podman-immich-patch.sh
+
+# Wait for Server started
+echo -n "Waiting for Immich comming up... "
+while [[ "200" != $(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$IMMICH_PUBLIC_PORT/") ]]; do sleep 0.5; done
+echo "Ready."
