@@ -23,7 +23,7 @@ elif [ "$xCMD" == "Change" ]; then
   read xNEW
   echo -e "$xPWD\n$xNEW\n$xNEW" | smbpasswd -U $xUSER -s -r localhost > /dev/null
   RESULT=$?
-  $RESULT || logger -t smbpwd-daemon "$xUSER password changed by $REMOTE_ADDR."
+  [ $RESULT -eq 0 ] && logger -t smbpwd-daemon "$xUSER password changed by $REMOTE_ADDR."
 fi
 
 if [ $RESULT -ne 0 ]; then
