@@ -76,4 +76,4 @@ if [ -f $SCRIPT_DIR/../share/immich-getsmbpwdnet.js ]; then
 fi
 
 echo "Restart patched Immich-Server"
-podman start Immich-Server
+podman restart Immich-Server
