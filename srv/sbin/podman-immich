@@ -34,6 +34,7 @@ POD=`podman pod ps -f name=Immich -q`
 NASUSERGIDS=
 NASUSERDIRS=
 while read -r NASUSER; do
+    [[ "" == "$NASUSER" ]] && continue
     NASUSERDIRS="$NASUSERDIRS -v /home/${NASUSER#* }/Immich:/usr/src/app/upload/library/${NASUSER#* }"
     NASUSERGIDS="$NASUSERGIDS,`id -g $NASUSER`"
 done <<< $(fgrep ":299:" /etc/group | cut -d ':' -f 4 | tr "," "\n")
