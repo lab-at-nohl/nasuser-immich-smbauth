@@ -1,0 +1,19 @@
+[Unit]
+Description=Podman's Immich POD
+After=network.target
+After=systemd-user-sessions.service
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=2
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/podman pod start Immich
+ExecStop=/usr/bin/podman pod stop Immich
+ExecStartPost=/bin/bash -c 'while [[ "$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:5000")" != "200" ]]; do sleep 0.5; done'
+TimeoutSec=25
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target default.target
