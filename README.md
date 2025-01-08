@@ -64,6 +64,7 @@ rm main.zip
 cp nasuser-immich-smbauth-4ff33a3/srv/* /usr/local/
 chmod +x /usr/local/sbin/*
 cp nasuser-immich-smbauth-4ff33a3/systemd/system/smbpwd-daemon* /etc/systemd/system/
+cp nasuser-immich-smbauth-4ff33a3/systemd/system/immich.service /etc/systemd/system/
 ```
 
 In file `/etc/systemd/system/smbpwd-daemon@.service`: Change `/srv/sbin/smbpwd-daemon.sh` to `/usr/local/sbin/smbpwd-daemon` (where we installed the daemon)
@@ -107,6 +108,13 @@ In file `/usr/local/share/immich-getsmbpwdnet.js`: Change `YOURDOMAINNAME` to e.
 #### podman-immich reuses existing images. After podman pull new-image... it is your future update tool, too
 
 `podman-immich` (this tool brings up all the necessary servers, storing its data under `/srv/immich` for default). 
+
+Prepare for loading at boot-time:
+```
+podman pod stop Immich
+systemctl start immich.service
+systemctl enable immich.service
+```
 
 #### Troubleshooting, download images separately (I use Intel = openvino, in doubt omit suffix)
 
