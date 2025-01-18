@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# For hardware acceleration, add one of -[armnn, cuda, openvino] to the image tag.
+IMMICH_ML_HW=
+
+podman stop Immich-Postgres
+btrfs subvolume snap /srv /home/immich.bkp-snap
+
+# New images, excluding postgres/rvector (must be v0.3)
+echo -n "Redis > "
+podman pull docker.io/library/redis:latest
+echo -n "Immich ML > "
+podman pull ghcr.io/immich-app/immich-machine-learning:release$IMMICH_ML_HW
+echo -n "Immich Server > "
+podman pull ghcr.io/immich-app/immich-server:release
+
+podman-immich
+
+if [ -d /home/immich.bkp-snap ]; then
+  echo
+  echo "Please CHECK your installation. Abort with Ctrl+C if update failed, ENTER continue with deleting snapshot."
+  read
+  rm -r /home/immich.bkp-snap
+fi
+
+podman image prune
