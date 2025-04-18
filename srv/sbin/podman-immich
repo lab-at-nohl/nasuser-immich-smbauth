@@ -84,7 +84,7 @@ if [[ $1 != "reset-users" ]]; then
   chown $IMMICH_UID:$IMMICH_GID $MNT/run/postgresql
   podman umount Immich-Postgres
   podman start Immich-Postgres > /dev/null
-  until podman exec -it Immich-Postgres psql -c '\l' > /dev/null; do sleep 0.2; done
+  until podman exec -it Immich-Postgres psql -P pager -c '\l' > /dev/null; do sleep 0.2; done
   podman exec -it Immich-Postgres psql -c "CREATE USER immich WITH SUPERUSER PASSWORD '$DB_PWD'" > /dev/null
 fi
 
