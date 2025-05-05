@@ -2,6 +2,7 @@
 #
 # Prerequisits:
 # mkdir /srv/scanner-files
+# useradd -s /bin/false -N -M -d /srv/scanner-files -u 103 scanservjs
 # chown scanservjs:users -R /srv/scanner-files
 # touch /srv/scanner-network-conf
 # chown scanservjs:users /srv/scanner-network-conf
