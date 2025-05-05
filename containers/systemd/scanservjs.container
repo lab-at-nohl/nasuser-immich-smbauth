@@ -1,0 +1,22 @@
+# scanservjs.container
+#
+# Prerequisits:
+# mkdir /srv/scanner-files
+# chown scanservjs:users -R /srv/scanner-files
+# touch /srv/scanner-network-conf
+# chown scanservjs:users /srv/scanner-network-conf
+#
+# scanimage -L ## see devices below
+#
+[Container]
+ContainerName=scanservjs
+Environment=SANED_NET_HOSTS=host.containers.internal DEVICES=net:host.containers.internal:xerox_mfp:libusb:001:005
+Group=users
+Image=sbs20/scanservjs:latest
+PublishPort=5001:8080
+User=scanservjs
+Volume=/var/run/dbus:/var/run/dbus
+Volume=/srv/scanner-files:/var/lib/scanservjs/output
+Volume=/srv/scanner-network-conf:/etc/sane.d/net.conf
+UserNS=keep-id
+
