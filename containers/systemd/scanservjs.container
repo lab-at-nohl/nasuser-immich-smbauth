@@ -20,4 +20,6 @@ Volume=/var/run/dbus:/var/run/dbus
 Volume=/srv/scanner-files:/var/lib/scanservjs/output
 Volume=/srv/scanner-network-conf:/etc/sane.d/net.conf
 UserNS=keep-id
-WantedBy=multi-user.target default.target
+
+[Install]
+WantedBy=default.target
