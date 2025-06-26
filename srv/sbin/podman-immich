@@ -72,10 +72,13 @@ else
 fi
 
 # Postgresql is fixed to rvector 0.3 || DB needs manual setting of process uid if pod in userns=keep-id
+# < Immich v1.135.1 = ghcr.io/immich-app/postgres:16-vectorchord0.3.0-pgvectors0.3.0
+# < Immich v1.133.1 = docker.io/tensorchord/pgvecto-rs:pg16-v0.3.0
 if [[ $1 != "reset-users" ]]; then
   echo -n "Immich-Postgres: "
   podman create --pod Immich --replace --name Immich-Postgres -v $IMMICH_DIR/db:/var/lib/postgresql/data:Z -e POSTGRES_DB=immich -e POSTGRES_PASSWORD=im1db \
-      docker.io/tensorchord/pgvecto-rs:pg16-v0.3.0 > /dev/null
+      ghcr.io/immich-app/postgres:16-vectorchord0.4.3-pgvectors0.3.0 \
+      > /dev/null
   MNT=$(podman mount Immich-Postgres)
   sed -i 's/999/299/g' $MNT/etc/passwd
   sed -i '/^immich/d' $MNT/etc/passwd
