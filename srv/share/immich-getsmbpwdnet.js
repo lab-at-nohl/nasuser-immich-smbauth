@@ -8,10 +8,10 @@ module.exports = {
 
 // check if domain indicate a smb user
 domain: function(domain) {
-    if (domain.split("@").pop() != "YOURDOMAINNAME") {
-        return false;
+    if (domain.split("@").pop() == "YOURDOMAINNAME") {
+        return true;
     }
-    return true;
+    return false;
 },
 
 // validate email & password
